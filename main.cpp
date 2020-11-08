@@ -10,7 +10,7 @@ IO_SERVICE* service = oal_ptr_null;
 unordered_map<oal_uint32,oal_uint8> pthread_tid_map;
 volatile oal_uint8   thread_count = 0;
 sem_t  timer_sem;
-oal_uint16  test;
+//oal_uint16  test;
 //threadpool* pthread_pool = oal_ptr_null;
 void prompt_info(int signum)
 {
