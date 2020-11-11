@@ -10,9 +10,12 @@ class connect
 {
 public :
 	sockaddr_in m_address;
-	oal_uint8  *chunk_head;
+	oal_bool    not_write;
+	oal_bool    write_need_free;
+	oal_uint8  *dyn_write_head;
 	oal_uint8   read_buff[BUFFER_SIZE];
 	oal_uint8   write_buff[BUFFER_SIZE];
+	oal_uint32  epoll_write_index;
 	oal_uint32  fd;
 	m_state     rw_state;
 	void clearReadbuff()
@@ -30,6 +33,13 @@ public :
 		memset(&m_address,0,sizeof(sockaddr_in));
 		fd = 0;
 		rw_state = O_READ;
+		not_write = false;
+		write_need_free = false;
+		epoll_write_index = 0;
+		// if(dyn_write_head)
+		// {
+		// 	free(dyn_write_head);
+		// }
 	}
 };
 #endif

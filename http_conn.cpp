@@ -62,7 +62,7 @@ HTTP_CODE http_conn::parse_request_line()
 		return REQUEST_ERROR;
 	}
 	len = str - temp;
-	URL.append(temp, len);
+	URL.append(temp + 1, len - 1);
 	str = strpbrk(temp, "s");
 	if (str == oal_ptr_null)
 	{
@@ -174,16 +174,17 @@ oal_void http_conn::read(oal_int32 read_index, oal_bool more_data)
 			if (parse_content() != REQUEST_OK)
 			{
 				oal_print("request not correct!!!!\n");
+				write_head(2,"text/html");
 				read_clr();
 				return;
 			}
 		}
-		do_servlet();//放到epollout那里
+		do_servlet();
 		read_clr();
 		return;
 	}
 }
-oal_uint8  http_conn::set_responseline(oal_uint8 code_index)
+oal_uint8  http_conn::set_responseline(oal_uint8 code_index)//在这里会对写信息做初始化
 {
 	memset(write_buff,0,sizeof(oal_uint8)* BUFFER_SIZE);
 	write_index = 0;
@@ -249,23 +250,28 @@ oal_uint8  http_conn::write_header()
 	response_header.clear();
 	return 0;
 }
+oal_uint8  http_conn::write_head(oal_uint8 error_code , string context_type)
+{
+	set_responseline(error_code);
+	set_header("Content-Type",context_type);
+	set_header("Server", "ngnix");
+	set_header("Cache-Control", "no-cache");
+	return 0;
+}
 oal_uint8  http_conn::write(string &content)
 {
 	//oal_uint8* test_html1 = "<html><head></head><body>haige ok!!go!!</body></html>";
 	//oal_uint8* test_html1 = "haige";
 	uLong content_len = content.size()+1;
 	oal_print("the out string len [%u]\n",content_len);
-	set_responseline(0);
-	set_header("Content-Type","text/html");
-	//set_header("Server", "ngnix");
-	set_header("Cache-Control", "no-cache");
-	//set_header("Connection", "close");
+	write_head(0,"text/html");
 	string lengths = to_string(content_len);
 	set_header("Content-Length", lengths);
 	write_header();
 	oal_print("write content\n");
 	if (content_len + write_index > BUFFER_SIZE)
 	{
+		not_write = true;
 		oal_print("content length is too long\n");
 		return 1;
 	}
@@ -278,43 +284,36 @@ oal_uint8  http_conn::write(string &content)
 	}
 	*/
 	memcpy(write_buff + write_index, content.c_str(), content_len);
-	//oal_print("compress success html : %s\n", write_buff + write_index);
-	//oal_print("html : %s\n", write_buff);
 	write_index += content_len;
 	
 	return 0;
 }
-oal_uint8  http_conn::write(oal_uint8* head ,oal_uint32 len)//11.7
+
+oal_uint8  http_conn::write_byte(oal_uint8* head ,oal_uint32 len ,string context_type)
 {
 	//uLong content_len = content.size()+1;
 	//oal_print("the out string len [%u]\n",content_len);
-	oal_uint8* temp_root = head;
-	for(oal_uint32 index = 0;index < 1200 && index < len ;index += 1200 )
+	write_head(0,context_type);
+	string lengths = to_string(len);
+	set_header("Content-Length", lengths);
+	write_header();
+	if (len + write_index > BUFFER_SIZE)
 	{
-		oal_uint32 temp_len = (len - index) > 1200 ? 1200 : (len - index);
-		set_responseline(0);
-		set_header("Content-Type"," image/jpeg");
-		//set_header("Server", "ngnix");
-		set_header("Cache-Control", "no-cache");
-		//set_header("Connection", "close");
-		string lengths = to_string(temp_len);
-		set_header("Content-Encoding", "chunked");
-		write_header();
-	    //chunk size
-		memcpy(write_buff + write_index, lengths.c_str(), lengths.size()+1);
-		write_index += lengths.size()+1;
-		*(write_buff + write_index) = '\r';
-		write_index++;
-		*(write_buff + write_index) = '\n';
-		write_index++;
-		oal_print("write content\n");
-		if (temp_len + write_index > BUFFER_SIZE)
+		write_need_free = true;
+		dyn_write_head = (oal_uint8 *)malloc(len + write_index);
+		if(!dyn_write_head)
 		{
-			oal_print("content length is too long\n");
-			return 1;
+			write_need_free = false;
+			not_write = true;
+			return -1;
 		}
-		memcpy(write_buff + write_index, temp_root, temp_len);
-		write_index += temp_len;
+		memcpy(dyn_write_head,write_buff,write_index);
+		memcpy(dyn_write_head + write_index,head,len);
+		write_index += len;
+		oal_print("the data len is [%u]\n",write_index);
+		return 0;
 	}
+	memcpy(write_buff + write_index, head, len);
+	write_index += len;
 	return 0;
 }

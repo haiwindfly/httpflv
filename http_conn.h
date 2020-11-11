@@ -84,15 +84,15 @@ class http_conn : public connect ,public http_request
 {
 private:
 	string servlet_name;//决定调用哪个servlet
-	HTTP_CHECK check_state;
 	oal_int32  check_index;
 	oal_int32  last_check_index;
 	oal_int32  read_limit_index;
 	oal_uint8* data;
 	unordered_map<string, string> response_header;
-	oal_uint16 write_index;
-	oal_bool   need_write_more ;
+	oal_uint32 write_index;
+	oal_bool   need_write_more;
 public:
+	HTTP_CHECK check_state;
 	Mytimer    alive_timer;
 	http_conn()
 	{
@@ -109,7 +109,8 @@ public:
 	oal_uint8  set_header(string key,string value);
 	oal_uint8  write_header();
 	oal_uint8  write(string &content);
-	oal_uint8  write(oal_uint8* head ,oal_uint32 len);
+	oal_uint8  write_head(oal_uint8 error_code , string context_type);
+    oal_uint8  write_byte(oal_uint8* head ,oal_uint32 len ,string context_type);
 	oal_void   set_alivetime(oal_uint16 timeout ,Time_type type)
 	{
 		alive_timer.is_on = true;
@@ -145,7 +146,7 @@ public:
 		read_limit_index = 0;
 		data = read_buff;
 	}
-	oal_uint16 get_writelen()
+	oal_uint32 get_writelen()
 	{
 		return write_index;
 	}

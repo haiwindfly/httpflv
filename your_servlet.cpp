@@ -1,19 +1,28 @@
 #include <your_servlet.h>
 #include <http_conn.h>
 string errorss("error");
+oal_uint8* login_html = "login.html";
 oal_int32 test_servlet(void* obj)
 {
 	FILE* fp; 
-	char *test_html1111 = "login.html";
-	char *test_html2222 = "resource/login.jpg";
-	char *test_html = test_html1111;
+	
+	// char *test_html2222 = "resource/beauty.mp4";
+	// //char *test_html2222 = "resource/login.jpg";
+	// char *test_html = test_html1111;
+	// http_conn* http_obj = (http_conn*)obj; 
+	// if(http_obj->getUrl() == "/resource/beauty.mp4")
+	// {
+	// 	oal_print("get image\n");
+	// 	test_html = test_html2222;
+	// }
 	http_conn* http_obj = (http_conn*)obj; 
-	if(http_obj->getUrl() == "/resource/login.jpg")
+	string urls = http_obj->getUrl() ;
+	if(urls.size()==0)
 	{
-		oal_print("get image\n");
-		test_html = test_html2222;
+		urls.append(login_html);
 	}
-	fp = fopen(test_html,"rb");// localfile文件名  
+	oal_print("the url is : [%s]\n",urls.c_str());
+	fp = fopen(urls.c_str(),"rb");// localfile文件名  
 	if(fp == oal_ptr_null)
 	{
 		oal_print("the file is not exsit\n");
@@ -23,6 +32,7 @@ oal_int32 test_servlet(void* obj)
 	}	      
 	fseek(fp,0L,SEEK_END); /* 定位到文件末尾 */  
 	oal_uint32 flen = ftell(fp); /* 得到文件大小 */  
+	oal_print("the file len is [%u]\n",flen);
 	oal_uint8* p = (oal_uint8 *)malloc(flen + 1); /* 根据文件大小动态分配内存空间 */  
 	if(p==NULL)  
 	{  
@@ -34,6 +44,7 @@ oal_int32 test_servlet(void* obj)
 	}  
 	fseek(fp,0L,SEEK_SET); /* 定位到文件开头 */  
 	fread(p,1,flen,fp); /* 一次性读取全部文件内容 */  
+	fclose(fp);
 /*
 函数名: fread
 功  能: 从一个流中读数据
@@ -63,7 +74,8 @@ oal_int32 test_servlet(void* obj)
 	//oal_print("the context :\n %s\n", p);
 	if(flen > 1500)
 	{
-
+		http_obj->write_byte(p,flen,"video/mpeg4");
+		free(p);
 	}
 	else
 	{

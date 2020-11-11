@@ -95,13 +95,14 @@ void IO_SERVICE::process(thread_data* data)
 	//oal_print("process 111111\n");
 	if (http_con[index].rw_state == O_READ)//边缘触发、非阻塞、reactor
 	{
-		
+		oal_bool read_over = false;
 		memset(http_con[index].read_buff, '\0', BUFFER_SIZE);
-		int data_read = 0;
-		int read_index = 0;
+		oal_int32 data_read = 0;
+		oal_int32 read_index = 0;
 		while (1)
 		{
-			data_read = recv(temp_fd, http_con[index].read_buff + read_index, BUFFER_SIZE - 1, 0);
+			data_read = recv(temp_fd, http_con[index].read_buff + read_index, BUFFER_SIZE - read_index, 0);//为什么要减1
+			//data_read = recv(temp_fd, http_con[index].read_buff + read_index, 0, 0);//当第三个数为0时，recv返回0
 			//oal_print("process 22222 read len [%d] \n", data_read);
 			if (data_read == 0)//返回0表示连接已关闭
 			{
@@ -128,7 +129,7 @@ void IO_SERVICE::process(thread_data* data)
 			}
 			else if (data_read < 0)
 			{
-				if (errno == EAGAIN || errno == EWOULDBLOCK)//表示连接没有数据可读
+				if (errno == EAGAIN || errno == EWOULDBLOCK)//表示连接没有数据可读，EAGAIN意思是resource unvaluiable
 				{
 					//oal_print("process 4444 read len [%d] \n", data_read);
 					// //gzip压缩
@@ -147,7 +148,7 @@ void IO_SERVICE::process(thread_data* data)
 					// {
 					// 	oal_print("the request : [%s]!\n",buff);
 					// }
-					memcpy(http_con[index]., http_con[index].read_buff, strlen((oal_int8 *)http_con[index].read_buff));
+					//memcpy(http_con[index]., http_con[index].read_buff, strlen((oal_int8 *)http_con[index].read_buff));
 					http_con[temp_fd].read(read_index,false);
 					modfd(epoll_fd, temp_fd, 1, EPOLLOUT);
 					oal_print(" start_send\n");
@@ -181,20 +182,80 @@ void IO_SERVICE::process(thread_data* data)
 			}
 			read_index += data_read;
 		}
+
+		
 	}
 	else
 	{
-	    //do_servlet();//放到epollout那里
-		//read_clr();
 		oal_print("write :\n");
-		char *path = "respon.txt";
-		oal_int32 fd = open(path, O_RDWR | O_CREAT | O_TRUNC);
-		write(fd, http_con[index].write_buff, http_con[index].get_writelen());
-		//oal_print("httprespon : %s\n", http_con[index].write_buff);
-		close(fd);
-		int ret = write(temp_fd, http_con[index].write_buff, http_con[index].get_writelen());
-		memset(http_con[index].write_buff, 0, BUFFER_SIZE);
-		oal_print("write data len [%d]\n",ret);
+		// char *path = "respon.txt";
+		// oal_int32 fd = open(path, O_RDWR | O_CREAT | O_TRUNC);
+		// write(fd, http_con[index].write_buff, http_con[index].get_writelen());
+		// //oal_print("httprespon : %s\n", http_con[index].write_buff);
+		// close(fd);
+		if(http_con[index].not_write)
+		{
+			if(!http_con[index].alive_timer.is_on)//如果定时器没开就关闭连接，如果开了就等待定时器去关闭
+			{
+				http_con[index].clear();
+				close_fd(epoll_fd, temp_fd);//不存在timer
+			}
+			return;
+		}
+		
+		if(http_con[index].write_need_free)
+		{
+			oal_int32 ret = 0;
+			oal_int32 plen = 0;
+			do
+			{
+				oal_print("the left data len [%d]\n",http_con[index].get_writelen() - plen);
+				ret = write(temp_fd, http_con[index].dyn_write_head + plen, http_con[index].get_writelen() - plen);
+				if(ret < 0 && errno == EPIPE) //连接被对方关闭
+				{
+					if(!http_con[index].alive_timer.is_on)
+					{
+						http_con[index].clear();
+						close_fd(epoll_fd, temp_fd);//不存在timer
+					}
+					else
+					{
+						http_con[index].alive_timer.now_time = http_con[index].alive_timer.timeout;
+					}
+					break;
+				}
+				plen += ret;
+		    	oal_print("write data len [%d]\n",ret);
+			}while(ret != 0);
+			free(http_con[index].dyn_write_head);
+			http_con[index].write_need_free = false;
+		}
+		else
+		{
+			oal_int32 ret = 0;
+			oal_int32 plen = 0;
+			do
+			{
+				ret = write(temp_fd, http_con[index].write_buff + plen, http_con[index].get_writelen() - plen);
+				if(ret < 0 && errno == EPIPE)
+				{
+					if(!http_con[index].alive_timer.is_on)
+					{
+						http_con[index].clear();
+						close_fd(epoll_fd, temp_fd);//不存在timer
+					}
+					else
+					{
+						http_con[index].alive_timer.now_time = http_con[index].alive_timer.timeout;
+					}
+					break;
+				}
+				plen += ret;
+		    	oal_print("write data len [%d]\n",ret);
+			}while(ret != 0);
+			memset(http_con[index].write_buff, 0, BUFFER_SIZE);
+		}
+		
 		if(http_con[index].is_short_connect())//如果是短连接，发送完数据就关闭连接
 		{
 			http_con[index].clear();
@@ -202,13 +263,13 @@ void IO_SERVICE::process(thread_data* data)
 		}
 		else
 		{
-			if(http_con[index].need_write_again())//如果需要再发送数据，则继续注册写就绪事件
+			if(http_con[index].need_write_again())//如果需要再发送数据，则继续注册写就绪事件 ,留给chunk用的，chunk报文除了首个报文有http头，其他报文都没有
 			{
 				modfd(epoll_fd, temp_fd, 1, EPOLLOUT);
 			}
 			else
 			{
-				oal_print("add timer\n",ret);
+				oal_print("add timer\n");
 				modfd(epoll_fd, temp_fd, 1, EPOLLIN);
 				//开启定时器，一定时间后还没来数据则关闭连接
 				if(!http_con[index].alive_timer.is_on)
